@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Stock Scorecard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a"><link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon-192.png">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<style>:root{color-scheme:dark}html,body{background:#0f172a;margin:0}body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}</style>
+</head><body><div id="root"></div>
+<script>if("serviceWorker"in navigator)navigator.serviceWorker.register("/sw.js").catch(()=>{})</script>
+<script type="text/babel">
+const {useState,useMemo,useEffect,useRef}=React;
+const Ic=({d,s=18,c=""})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={c}>{d.map((p,i)=><path key={i} d={p}/>)}</svg>;
+const I={search:["M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z","M21 21l-4.3-4.3"],copy:["M8 8h12v12H8z","M4 16V4h12"],reset:["M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8","M3 3v5h5"],chev:["M6 9l6 6 6-6"],bank:["M3 21h18","M3 10h18","M5 6l7-3 7 3","M4 10v11","M20 10v11","M8 14v3","M12 14v3","M16 14v3"]};
+const CATS=[
+{t:"Valuation",m:[["pe","P/E Ratio","L",15,25,"x"],["pb","P/B Ratio","L",1.5,3,"x"],["peg","PEG Ratio","L",1,2,"x"],["ev","EV / EBITDA","L",10,18,"x"],["ps","Price / Sales","L",2,5,"x"]]},
+{t:"Profitability",m:[["roe","ROE","H",15,10,"%"],["roce","ROCE","H",15,10,"%"],["roa","ROA","H",7,3,"%"],["roic","ROIC","H",12,8,"%"],["opm","Operating Margin","H",20,10,"%"],["npm","Net Profit Margin","H",10,5,"%"]]},
+{t:"Growth",m:[["rev","Revenue Growth 5Y CAGR","H",12,5,"%"],["pat","Net Profit Growth 5Y CAGR","H",15,5,"%"],["eps","EPS Growth 3Y CAGR","H",15,5,"%"]]},
+{t:"Financial Health",m:[["de","Debt to Equity","L",.5,1.5,"x",1],["icr","Interest Coverage","H",5,2,"x",1],["cr","Current Ratio","H",1.5,1,"x",1],["qr","Quick Ratio","H",1,.7,"x",1],["nde","Net Debt / EBITDA","L",1,3,"x",1]]},
+{t:"Cash Flow",m:[["ocf","OCF / Net Profit","H",90,60,"%"],["fcfm","FCF Margin","H",10,3,"%"],["fcfy","FCF Yield","H",5,2,"%"],["capex","Capex / OCF","L",40,70,"%"]]},
+{t:"Efficiency & Ownership",m:[["at","Asset Turnover","H",1,.5,"x"],["rd","Receivable Days","L",45,90,"d"],["inv","Inventory Days","L",60,120,"d"],["pro","Promoter Holding","H",50,30,"%"],["pl","Promoter Pledging","L",5,20,"%"],["dy","Dividend Yield","H",2,.5,"%"]]},
+];
+const rate=(m,v)=>{if(v===""||v==null||isNaN(v))return null;const[,,d,g,b]=m;return d==="L"?(v<=g?2:v<=b?1:0):(v>=g?2:v>=b?1:0)};
+const cut=m=>{const[,,d,g,b]=m;return d==="L"?`Good ≤${g} · Mid ≤${b} · Bad >${b}`:`Good ≥${g} · Mid ≥${b} · Bad <${b}`};
+const verdict=p=>p>=70?{l:"Strong",e:"🟢",c:"bg-emerald-500/15 text-emerald-300 border-emerald-500/40",b:"bg-emerald-500"}:p>=45?{l:"Average",e:"🟡",c:"bg-amber-500/15 text-amber-300 border-amber-500/40",b:"bg-amber-500"}:{l:"Weak",e:"🔴",c:"bg-rose-500/15 text-rose-300 border-rose-500/40",b:"bg-rose-500"};
+const PT={2:{l:"Good · 2",c:"bg-emerald-500/20 text-emerald-300"},1:{l:"Mid · 1",c:"bg-amber-500/20 text-amber-300"},0:{l:"Bad · 0",c:"bg-rose-500/20 text-rose-300"}};
+const copy=t=>new Promise(r=>{const f=()=>{try{const a=document.createElement("textarea");a.value=t;a.style.cssText="position:fixed;opacity:0";document.body.appendChild(a);a.select();const o=document.execCommand("copy");a.remove();r(o)}catch(e){r(false)}};navigator.clipboard?.writeText?navigator.clipboard.writeText(t).then(()=>r(true),f):f()});
+
+function App(){
+  const [q,setQ]=useState("");const [sugs,setSugs]=useState([]);const [sugOpen,setSugOpen]=useState(false);
+  const [info,setInfo]=useState({symbol:"",name:"",sector:""});
+  const [vals,setVals]=useState({});const [auto,setAuto]=useState({});const [bank,setBank]=useState(false);
+  const [open,setOpen]=useState(0);const [note,setNote]=useState("");const [busy,setBusy]=useState(false);
+  const [conf,setConf]=useState(false);const [md,setMd]=useState("");const tm=useRef();
+  const toast=t=>{setNote(t);setTimeout(()=>setNote(""),3500)};
+
+  useEffect(()=>{clearTimeout(tm.current);const s=q.trim();if(s.length<2){setSugs([]);return}
+    tm.current=setTimeout(()=>fetch("/api/search?q="+encodeURIComponent(s)).then(r=>r.json()).then(setSugs).catch(()=>setSugs([])),300)},[q]);
+
+  const active=CATS.map(c=>({...c,m:c.m.filter(x=>!(bank&&x[6]))}));
+  const all=active.flatMap(c=>c.m);const max=all.length*2;
+  const score=all.reduce((s,m)=>s+(rate(m,parseFloat(vals[m[0]]))??0),0);
+  const rated=all.filter(m=>rate(m,parseFloat(vals[m[0]]))!==null).length;
+  const pct=max?score/max*100:0;const vd=verdict(pct);
+
+  const load=async(sym)=>{
+    const s=(sym||q).trim();if(!s)return;setBusy(true);setSugOpen(false);
+    try{
+      const r=await fetch("/api/stock?symbol="+encodeURIComponent(s));
+      if(!r.ok)throw 0;const d=await r.json();
+      const o={},a={};Object.entries(d.values).forEach(([k,v])=>{o[k]=String(v);a[k]=1});
+      setVals(o);setAuto(a);setInfo({symbol:d.symbol,name:d.name,sector:d.sector});
+      setBank(/financial/i.test(d.sector||""));setOpen(0);
+      toast(`${Object.keys(o).length} metrics auto-filled. Fill the rest manually.`);
+    }catch(e){toast("Could not fetch "+s+". Try the autocomplete list or enter manually.")}
+    setBusy(false);
+  };
+  const doExport=async()=>{
+    let s=`## ${info.symbol||"Stock"}${info.name?` – ${info.name}`:""}\n**Mode:** ${bank?"Bank/NBFC (24)":"Standard (29)"}  \n**Score:** ${score} / ${max} — ${pct.toFixed(1)}% — ${vd.e} ${vd.l}\n\n| Metric | Value | Rating |\n|---|---|---|\n`;
+    all.forEach(m=>{const v=parseFloat(vals[m[0]]);const r=rate(m,v);s+=`| ${m[1]} | ${r===null?"-":v+m[5]} | ${r===null?"Not rated":["Bad (0)","Mid (1)","Good (2)"][r]} |\n`});
+    if(await copy(s))toast("Scorecard copied ✓");else{setMd(s);toast("Copy blocked. Select the text below.")}
+  };
+  const reset=()=>{if(!conf){setConf(true);setTimeout(()=>setConf(false),3000);return}setVals({});setAuto({});setInfo({symbol:"",name:"",sector:""});setQ("");setBank(false);setMd("");setConf(false);setOpen(0)};
+  const inp="bg-slate-800 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500";
+
+  return <div className="min-h-screen text-slate-100 max-w-xl mx-auto pb-10">
+    <div className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-4 py-3" style={{paddingTop:"calc(env(safe-area-inset-top,0px) + .75rem)"}}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0"><div className="font-bold truncate">{info.symbol||"No stock selected"}</div>
+          <div className="text-xs text-slate-400 tabular-nums truncate">{info.name&&info.name+" · "}{score} / {max} · {pct.toFixed(1)}% · {rated}/{all.length}</div></div>
+        <span className={"px-3 py-1.5 rounded-full border text-sm font-semibold whitespace-nowrap "+vd.c}>{vd.e} {vd.l}</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-slate-800 mt-2 overflow-hidden"><div className={"h-full transition-all duration-500 "+vd.b} style={{width:pct+"%"}}/></div>
+    </div>
+    <div className="px-4 pt-4 space-y-3">
+      <div className="relative"><div className="flex gap-2">
+        <div className="relative flex-1"><Ic d={I.search} c="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"/>
+          <input className={inp+" w-full h-12 pl-10 pr-3"} placeholder="Search any NSE/BSE stock" value={q} onChange={e=>{setQ(e.target.value);setSugOpen(true)}} onFocus={()=>setSugOpen(true)} onKeyDown={e=>e.key==="Enter"&&load()}/></div>
+        <button onClick={()=>load()} disabled={busy} className="h-12 px-4 rounded-xl bg-indigo-500 font-semibold active:scale-95 disabled:opacity-60">{busy?"…":"Fetch"}</button></div>
+        {sugOpen&&sugs.length>0&&<ul className="absolute z-20 left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-xl">
+          {sugs.map(s=><li key={s.symbol}><button onClick={()=>{setQ(s.symbol);load(s.symbol)}} className="w-full text-left px-4 h-12 flex items-center justify-between active:bg-slate-700"><span className="font-medium">{s.symbol}</span><span className="text-xs text-slate-400 truncate ml-3">{s.name}</span></button></li>)}</ul>}
+      </div>
+      <button onClick={()=>setBank(!bank)} className={"w-full h-12 rounded-xl border flex items-center justify-center gap-2 text-sm font-medium "+(bank?"bg-indigo-500/15 border-indigo-500/50 text-indigo-200":"bg-slate-800 border-slate-700")}><Ic d={I.bank}/>Bank/NBFC mode {bank?"ON (48 pts)":"OFF (58 pts)"}</button>
+      <p className="text-[11px] text-slate-500">Data comes from Yahoo Finance (unofficial, can be delayed or missing for Indian stocks). Auto-filled fields are tagged. Promoter Holding uses Yahoo's insider % as a rough proxy. Verify before investing.</p>
+    </div>
+    <div className="px-4 pt-4 space-y-3" onClick={()=>setSugOpen(false)}>
+      {active.map((c,i)=>{const isO=open===i;const done=c.m.filter(m=>rate(m,parseFloat(vals[m[0]]))!==null).length;const pts=c.m.reduce((s,m)=>s+(rate(m,parseFloat(vals[m[0]]))??0),0);
+        return <section key={c.t} className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden">
+          <button onClick={()=>setOpen(isO?-1:i)} className="w-full h-14 px-4 flex items-center justify-between"><span className="font-semibold">{c.t}</span>
+            <span className="flex items-center gap-3"><span className="text-xs text-slate-400">{c.m.length?`${pts}/${c.m.length*2} pts · ${done}/${c.m.length}`:"skipped"}</span><Ic d={I.chev} c={"text-slate-400 transition-transform "+(isO?"rotate-180":"")}/></span></button>
+          <div className="grid transition-all duration-300" style={{gridTemplateRows:isO?"1fr":"0fr"}}><div className="overflow-hidden"><div className="px-4 pb-4 space-y-3">
+            {c.m.length===0&&<p className="text-sm text-slate-400">Ignored in Bank/NBFC mode.</p>}
+            {c.m.map(m=>{const r=rate(m,parseFloat(vals[m[0]]));return <div key={m[0]} className="p-3 rounded-xl bg-slate-800/60 border border-slate-800">
+              <div className="flex items-center justify-between gap-2"><span className="text-sm font-medium">{m[1]} {auto[m[0]]&&<span className="text-[10px] text-indigo-300 border border-indigo-500/40 rounded px-1 ml-1">AUTO</span>}</span>
+                {r!==null?<span className={"text-xs font-semibold px-2 py-1 rounded-full "+PT[r].c}>{PT[r].l}</span>:<span className="text-xs text-slate-500">No value</span>}</div>
+              <div className="flex items-center gap-2 mt-2"><input type="text" inputMode="decimal" value={vals[m[0]]??""} placeholder="Enter value" onChange={e=>{setVals({...vals,[m[0]]:e.target.value.replace(/[^0-9.\-]/g,"")});setAuto({...auto,[m[0]]:0})}} className={inp+" flex-1 h-11 px-3 text-base tabular-nums"}/><span className="w-6 text-slate-400 text-sm">{m[5]}</span></div>
+              <p className="text-[11px] text-slate-500 mt-2">{cut(m)}</p></div>})}
+          </div></div></div></section>})}
+      {md&&<textarea readOnly value={md} onFocus={e=>e.target.select()} className="w-full h-40 bg-slate-800 border border-slate-700 rounded-xl p-3 text-xs font-mono"/>}
+      <div className="grid grid-cols-2 gap-2">
+        <button onClick={doExport} className="h-12 rounded-xl bg-indigo-500 font-semibold flex items-center justify-center gap-2 active:scale-95"><Ic d={I.copy}/>Copy Scorecard</button>
+        <button onClick={reset} className={"h-12 rounded-xl border font-semibold flex items-center justify-center gap-2 active:scale-95 "+(conf?"bg-rose-500 border-rose-400":"bg-slate-800 border-slate-700")}><Ic d={I.reset}/>{conf?"Tap to confirm":"Reset All"}</button></div>
+    </div>
+    {note&&<div className="fixed left-4 right-4 max-w-xl mx-auto z-40 bg-slate-100 text-slate-900 text-sm rounded-xl px-4 py-3 shadow-xl" style={{bottom:"calc(env(safe-area-inset-bottom,0px) + 1rem)"}}>{note}</div>}
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script></body></html>
